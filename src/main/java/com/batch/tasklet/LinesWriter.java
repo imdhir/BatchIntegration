@@ -13,12 +13,14 @@ import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.item.ExecutionContext;
 import org.springframework.batch.repeat.RepeatStatus;
 
+import com.batch.db.Record;
+
 public class LinesWriter implements Tasklet, StepExecutionListener {
 	 
     private final Logger logger = LoggerFactory
       .getLogger(LinesWriter.class);
  
-    private List<Line> lines;
+    private List<Record> records;
     private FileUtils fu;
  
     @Override
@@ -26,7 +28,7 @@ public class LinesWriter implements Tasklet, StepExecutionListener {
         ExecutionContext executionContext = stepExecution
           .getJobExecution()
           .getExecutionContext();
-        this.lines = (List<Line>) executionContext.get("lines");
+        this.records = (List<Record>) executionContext.get("records");
         fu = new FileUtils("output.csv");
         logger.debug("Lines Writer initialized.");
     }
@@ -34,9 +36,9 @@ public class LinesWriter implements Tasklet, StepExecutionListener {
     @Override
     public RepeatStatus execute(StepContribution stepContribution, 
       ChunkContext chunkContext) throws Exception {
-        for (Line line : lines) {
-            fu.writeLine(line);
-            logger.debug("Wrote line " + line.toString());
+        for (Record record : records) {
+           // fu.writeLine(record);
+            logger.debug("Wrote line " + record.toString());
         }
         return RepeatStatus.FINISHED;
     }

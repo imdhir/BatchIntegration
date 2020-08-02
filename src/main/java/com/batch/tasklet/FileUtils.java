@@ -4,12 +4,11 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.batch.db.Record;
 import com.opencsv.CSVReader;
 import com.opencsv.CSVWriter;
 
@@ -18,8 +17,8 @@ public class FileUtils {
 	private final Logger logger = LoggerFactory.getLogger(FileUtils.class);
 
 	private String fileName;
-	private CSVReader CSVReader;
-	private CSVWriter CSVWriter;
+	private CSVReader reader;
+	private CSVWriter writer;
 	private FileReader fileReader;
 	private FileWriter fileWriter;
 	private File file;
@@ -28,41 +27,35 @@ public class FileUtils {
 		this.fileName = fileName;
 	}
 
-	public Line readLine() {
+	public Record readLine() {
 		try {
-			if (CSVReader == null)
+			if (reader == null)
 				initReader();
-			String[] line = CSVReader.readNext();
+			String[] line = reader.readNext();
 			if (line == null)
 				return null;
-			return new Line(line[0], LocalDate.parse(line[1], DateTimeFormatter.ofPattern("MM/dd/yyyy")));
+			return new Record(Integer.parseInt(line[0]), line[1],line[2]);
 		} catch (Exception e) {
 			logger.error("Error while reading line in file: " + this.fileName);
 			return null;
 		}
 	}
 
-	public void writeLine(Line line) {
-		try {
-			if (CSVWriter == null)
-				initWriter();
-			String[] lineStr = new String[2];
-			lineStr[0] = line.getName();
-			lineStr[1] = line.getAge().toString();
-			CSVWriter.writeNext(lineStr);
-		} catch (Exception e) {
-			logger.error("Error while writing line in file: " + this.fileName);
-		}
-	}
-
+	/*
+	 * public void writeLine(Line line) { try { if (CSVWriter == null) initWriter();
+	 * String[] lineStr = new String[2]; lineStr[0] = line.getName(); lineStr[1] =
+	 * line.getAge().toString(); CSVWriter.writeNext(lineStr); } catch (Exception e)
+	 * { logger.error("Error while writing line in file: " + this.fileName); } }
+	 */
 	private void initReader() throws Exception {
 		ClassLoader classLoader = this.getClass().getClassLoader();
 		if (file == null)
-			file = new File(classLoader.getResource(fileName).getFile());
+			//file = new File(classLoader.getResource(fileName).getFile());
+			file = new File(fileName);
 		if (fileReader == null)
 			fileReader = new FileReader(file);
-		if (CSVReader == null)
-			CSVReader = new CSVReader(fileReader);
+		if (reader == null)
+			reader = new CSVReader(fileReader);
 	}
 
 	private void initWriter() throws Exception {
@@ -72,13 +65,13 @@ public class FileUtils {
 		}
 		if (fileWriter == null)
 			fileWriter = new FileWriter(file, true);
-		if (CSVWriter == null)
-			CSVWriter = new CSVWriter(fileWriter);
+		if (writer == null)
+			writer = new CSVWriter(fileWriter);
 	}
 
 	public void closeWriter() {
 		try {
-			CSVWriter.close();
+			writer.close();
 			fileWriter.close();
 		} catch (IOException e) {
 			logger.error("Error while closing writer.");
@@ -87,8 +80,10 @@ public class FileUtils {
 
 	public void closeReader() {
 		try {
-			CSVReader.close();
-			fileReader.close();
+			if (reader != null)
+				reader.close();
+			if (fileReader != null)
+				fileReader.close();
 		} catch (IOException e) {
 			logger.error("Error while closing reader.");
 		}

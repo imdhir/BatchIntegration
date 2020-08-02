@@ -1,8 +1,11 @@
 package com.batch.config;
 
 import java.io.File;
+import java.time.LocalDateTime;
 
+import org.springframework.batch.core.BatchStatus;
 import org.springframework.batch.core.Job;
+import org.springframework.batch.core.JobExecution;
 import org.springframework.batch.core.launch.support.SimpleJobLauncher;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.integration.config.annotation.EnableBatchIntegration;
@@ -18,13 +21,19 @@ import org.springframework.integration.annotation.IntegrationComponentScan;
 import org.springframework.integration.config.EnableIntegration;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.IntegrationFlows;
+import org.springframework.integration.dsl.MessageChannels;
 import org.springframework.integration.dsl.Pollers;
+import org.springframework.integration.file.FileNameGenerator;
 import org.springframework.integration.file.remote.session.CachingSessionFactory;
 import org.springframework.integration.file.remote.session.SessionFactory;
 import org.springframework.integration.handler.LoggingHandler;
 import org.springframework.integration.sftp.dsl.Sftp;
 import org.springframework.integration.sftp.inbound.SftpInboundFileSynchronizer;
 import org.springframework.integration.sftp.session.DefaultSftpSessionFactory;
+import org.springframework.integration.transformer.GenericTransformer;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.MessagingException;
 
 import com.jcraft.jsch.ChannelSftp.LsEntry;
 
@@ -87,38 +96,13 @@ public class InboundConfigs {
 		return fileSynchronizer;
 	}
 
-	/*
-	 * @Bean
-	 * 
-	 * @InboundChannelAdapter(channel = "sftpChannel", poller = @Poller(fixedDelay =
-	 * "${sftp.polling.interval}")) public MessageSource<File> sftpMessageSource() {
-	 * SftpInboundFileSynchronizingMessageSource source = new
-	 * SftpInboundFileSynchronizingMessageSource(sftpInboundFileSynchronizer());
-	 * source.setLocalDirectory(new File(sftpLocalDirectory));
-	 * source.setAutoCreateLocalDirectory(true); source.setLocalFilter(new
-	 * AcceptOnceFileListFilter<File>()); source.setMaxFetchSize(maxFetchSize);
-	 * return source; }
-	 */
-
-	/*
-	 * @Bean
-	 * 
-	 * @ServiceActivator(inputChannel = "sftpChannel") public MessageHandler
-	 * handler() { return new MessageHandler() {
-	 * 
-	 * @Override public void handleMessage(Message<?> message) throws
-	 * MessagingException { System.out.println("*******************" +
-	 * message.getPayload()); }
-	 * 
-	 * }; }
-	 */
-
 	@Bean
 	public JobLaunchingGateway jobLaunchingGateway() {
 		SimpleJobLauncher simpleJobLauncher = new SimpleJobLauncher();
 		simpleJobLauncher.setJobRepository(jobRepository);
 		simpleJobLauncher.setTaskExecutor(new SyncTaskExecutor());
 		JobLaunchingGateway jobLaunchingGateway = new JobLaunchingGateway(simpleJobLauncher);
+		jobLaunchingGateway.onError(new RuntimeException("*********************** ############# Error occurred"));
 
 		return jobLaunchingGateway;
 	}
@@ -132,6 +116,11 @@ public class InboundConfigs {
 	}
 
 	@Bean
+	public MessageChannel onSuccessChannel() {
+		return MessageChannels.direct().get();
+	}
+
+	@Bean
 	public IntegrationFlow integrationFlow(JobLaunchingGateway jobLaunchingGateway) {
 
 		return IntegrationFlows
@@ -141,20 +130,58 @@ public class InboundConfigs {
 						// filter(new SimplePatternFileListFilter("*.csv")),
 						c -> c.poller(Pollers.fixedRate(fixedDelay).maxMessagesPerPoll(1)))
 				.transform(fileMessageToJobRequest()).handle(jobLaunchingGateway)
-				.log(LoggingHandler.Level.WARN, "headers.id + ': ' + payload").get();
+				.log(LoggingHandler.Level.WARN, "headers.id + ': ' + payload").channel(onSuccessChannel()).get();
 	}
 
-	/*
-	 * @Bean
-	 * 
-	 * @Transformer(inputChannel = "sftpChannel") public JobLaunchRequest handler(
-	 * MessageSource<File> message) { JobParametersBuilder jobParametersBuilder =
-	 * new JobParametersBuilder();
-	 * 
-	 * jobParametersBuilder.addString("fileName",
-	 * message.receive().getPayload().getAbsolutePath());
-	 * ///jobParametersBuilder.toJobParameters() return new JobLaunchRequest(job,
-	 * null); }
-	 */
+	@Bean
+	public IntegrationFlow onSuccessFlow() {
+
+		// Sftp.outboundAdapter(sftpSessionFactory()).remoteDirectory("/processed/");
+
+		return IntegrationFlows.from(onSuccessChannel()).transform(new GenericTransformer<JobExecution, File>() {
+			public File transform(JobExecution source) {
+				if(source.getStatus()==BatchStatus.FAILED) {
+					throw new RuntimeException("Batch operation failed");
+				}
+				return new File(source.getJobParameters().getString("input.file.name"));
+
+			};
+		}).handle(Sftp.outboundAdapter(sftpSessionFactory()).remoteDirectory("/processed")
+				.fileNameGenerator(new FileNameGenerator() {
+
+					@Override
+					public String generateFileName(Message<?> message) {
+						return ((File) message.getPayload()).getName() + "-processed-" + LocalDateTime.now().toString().replace(":", "") + ".csv";
+					}
+				})).get();
+	}
+
+	@Bean
+	public IntegrationFlow onErrorFlow() {
+
+		// Sftp.outboundAdapter(sftpSessionFactory()).remoteDirectory("/processed/");
+
+		return IntegrationFlows.from("errorChannel")
+				.transform(new GenericTransformer<MessagingException, File>() {
+					@Override
+					public File transform(MessagingException payload) {
+						System.out.println(
+								"**************************** Error " + payload.getFailedMessage().getPayload());
+						String fileName = ((JobExecution) payload.getFailedMessage().getPayload())
+								.getJobParameters().getString("input.file.name");
+						return new File(fileName);
+					}
+				}).handle(Sftp.outboundAdapter(sftpSessionFactory()).remoteDirectory("/processed")
+						.fileNameGenerator(new FileNameGenerator() {
+
+							@Override
+							public String generateFileName(Message<?> message) {
+								return ((File) message.getPayload()).getName() + "-errored-" + LocalDateTime.now().toString().replace(":", "")
+										+ ".csv";
+							}
+						}))
+				.get();
+
+	}
 
 }

@@ -1,7 +1,5 @@
 package com.batch.tasklet;
 
-import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -15,38 +13,45 @@ import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.item.ExecutionContext;
 import org.springframework.batch.repeat.RepeatStatus;
 
+import com.batch.db.Record;
+import com.batch.db.RecordRepository;
+
 public class LinesProcessor implements Tasklet, StepExecutionListener {
-	 
-    private Logger logger = LoggerFactory.getLogger(
-      LinesProcessor.class);
- 
-    private List<Line> lines;
- 
-    @Override
-    public void beforeStep(StepExecution stepExecution) {
-        ExecutionContext executionContext = stepExecution
-          .getJobExecution()
-          .getExecutionContext();
-        this.lines = (List<Line>) executionContext.get("lines");
-        logger.debug("Lines Processor initialized.");
-    }
- 
-    @Override
-    public RepeatStatus execute(StepContribution stepContribution, 
-      ChunkContext chunkContext) throws Exception {
-        for (Line line : lines) {
-            long age = ChronoUnit.YEARS.between(
-              line.getDob(), 
-              LocalDate.now());
-            logger.debug("Calculated age " + age + " for line " + line.toString());
-            line.setAge(age);
-        }
-        return RepeatStatus.FINISHED;
-    }
- 
-    @Override
-    public ExitStatus afterStep(StepExecution stepExecution) {
-        logger.debug("Lines Processor ended.");
-        return ExitStatus.COMPLETED;
-    }
+
+	private Logger logger = LoggerFactory.getLogger(LinesProcessor.class);
+
+	private List<Record> records;
+
+	private RecordRepository recordRepository;
+
+	public LinesProcessor(RecordRepository recordRepository) {
+		this.recordRepository = recordRepository;
+	}
+
+	@Override
+	public void beforeStep(StepExecution stepExecution) {
+		ExecutionContext executionContext = stepExecution.getJobExecution().getExecutionContext();
+		this.records = (List<Record>) executionContext.get("records");
+		logger.debug("Lines Processor initialized.");
+	}
+
+	@Override
+	public RepeatStatus execute(StepContribution stepContribution, ChunkContext chunkContext) throws Exception {
+		for (Record record : records) {
+			logger.info("Record saved on DB : " + record.toString());
+			recordRepository.save(record);
+			// To simulate failure
+			//throw new RuntimeException();
+			
+		}
+		chunkContext.setComplete();
+		logger.info("************** Records saved in DB : "+ recordRepository.count());
+		return RepeatStatus.FINISHED;
+	}
+
+	@Override
+	public ExitStatus afterStep(StepExecution stepExecution) {
+		logger.debug("Lines Processor ended.");
+		return ExitStatus.COMPLETED;
+	}
 }

@@ -15,6 +15,9 @@ import org.springframework.batch.repeat.RepeatStatus;
 
 import com.batch.db.Record;
 
+/**
+ * Simple line reader
+ */
 public class LinesReader implements Tasklet, StepExecutionListener {
 
 	private final Logger logger = LoggerFactory.getLogger(LinesReader.class);

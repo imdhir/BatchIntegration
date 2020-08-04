@@ -9,7 +9,7 @@
 		<version>2.3.2.RELEASE</version>
 		<relativePath /> <!-- lookup parent from repository -->
 	</parent>
-	<groupId>com.abdul.batch</groupId>
+	<groupId>com.am.batch</groupId>
 	<artifactId>BatchIntegration</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>BatchIntegration</name>

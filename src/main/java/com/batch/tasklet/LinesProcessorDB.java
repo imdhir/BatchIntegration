@@ -16,18 +16,19 @@ import org.springframework.batch.repeat.RepeatStatus;
 import com.batch.db.Record;
 import com.batch.db.RecordRepository;
 
-public class LinesProcessor implements Tasklet, StepExecutionListener {
+public class LinesProcessorDB implements Tasklet, StepExecutionListener {
 
-	private Logger logger = LoggerFactory.getLogger(LinesProcessor.class);
+	private Logger logger = LoggerFactory.getLogger(LinesProcessorDB.class);
 
 	private List<Record> records;
 
 	private RecordRepository recordRepository;
 
-	public LinesProcessor(RecordRepository recordRepository) {
+	public LinesProcessorDB(RecordRepository recordRepository) {
 		this.recordRepository = recordRepository;
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
 	public void beforeStep(StepExecution stepExecution) {
 		ExecutionContext executionContext = stepExecution.getJobExecution().getExecutionContext();
@@ -41,11 +42,11 @@ public class LinesProcessor implements Tasklet, StepExecutionListener {
 			logger.info("Record saved on DB : " + record.toString());
 			recordRepository.save(record);
 			// To simulate failure
-			//throw new RuntimeException();
-			
+			// throw new RuntimeException();
+
 		}
 		chunkContext.setComplete();
-		logger.info("************** Records saved in DB : "+ recordRepository.count());
+		logger.info("************** Records saved in DB : " + recordRepository.count());
 		return RepeatStatus.FINISHED;
 	}
 

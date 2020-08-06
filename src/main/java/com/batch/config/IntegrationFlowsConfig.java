@@ -21,14 +21,17 @@ import org.springframework.context.annotation.PropertySource;
 import org.springframework.core.task.SyncTaskExecutor;
 import org.springframework.integration.annotation.IntegrationComponentScan;
 import org.springframework.integration.config.EnableIntegration;
+import org.springframework.integration.dsl.GenericEndpointSpec;
 import org.springframework.integration.dsl.IntegrationFlow;
 import org.springframework.integration.dsl.IntegrationFlows;
 import org.springframework.integration.dsl.MessageChannels;
 import org.springframework.integration.dsl.Pollers;
 import org.springframework.integration.file.FileNameGenerator;
+import org.springframework.integration.file.remote.handler.FileTransferringMessageHandler;
 import org.springframework.integration.file.remote.session.CachingSessionFactory;
 import org.springframework.integration.file.remote.session.SessionFactory;
 import org.springframework.integration.handler.LoggingHandler;
+import org.springframework.integration.handler.advice.ExpressionEvaluatingRequestHandlerAdvice;
 import org.springframework.integration.sftp.dsl.Sftp;
 import org.springframework.integration.sftp.session.DefaultSftpSessionFactory;
 import org.springframework.integration.transformer.GenericTransformer;
@@ -36,6 +39,7 @@ import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.MessagingException;
 
+import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.ChannelSftp.LsEntry;
 
 @Configuration
@@ -53,6 +57,9 @@ public class IntegrationFlowsConfig {
 	@Value("${sftp.host}")
 	private String sftpHost;
 
+	@Value("${sftp.destination.host}")
+	private String sftpDestHost;
+
 	@Value("${sftp.port}")
 	private int sftpPort;
 
@@ -68,7 +75,7 @@ public class IntegrationFlowsConfig {
 	@Value("${sftp.local.directory}")
 	private String sftpLocalDirectory;
 
-	@Value("${sftp.maxFetchsize:1}")
+	@Value("${sftp.maxFetchsize:20}")
 	private int maxFetchSize;
 
 	@Value("${sftp.source.directory.filePattern}")
@@ -93,6 +100,17 @@ public class IntegrationFlowsConfig {
 	public SessionFactory<LsEntry> sftpSessionFactory() {
 		DefaultSftpSessionFactory factory = new DefaultSftpSessionFactory(true);
 		factory.setHost(sftpHost);
+		factory.setPort(sftpPort);
+		factory.setUser(sftpUserName);
+		factory.setPassword(sftpPassword);
+		factory.setAllowUnknownKeys(true);
+		return new CachingSessionFactory<LsEntry>(factory);
+	}
+
+	@Bean
+	public SessionFactory<LsEntry> sftpDestinationSessionFactory() {
+		DefaultSftpSessionFactory factory = new DefaultSftpSessionFactory(true);
+		factory.setHost(sftpDestHost);
 		factory.setPort(sftpPort);
 		factory.setUser(sftpUserName);
 		factory.setPassword(sftpPassword);
@@ -135,7 +153,7 @@ public class IntegrationFlowsConfig {
 				.from(Sftp.inboundAdapter(sftpSessionFactory()).remoteDirectory(sftpSourceDirectory)
 						.regexFilter(removeFilePattern).localDirectory(new File(sftpLocalDirectory))
 						.autoCreateLocalDirectory(true).maxFetchSize(maxFetchSize).deleteRemoteFiles(deleteRemoveFile),
-						c -> c.poller(Pollers.fixedRate(fixedDelay).maxMessagesPerPoll(1)))
+						c -> c.poller(Pollers.fixedRate(fixedDelay).maxMessagesPerPoll(maxFetchSize)))
 				.transform(fileMessageToJobRequest()).handle(jobLaunchingGateway)
 				.log(LoggingHandler.Level.WARN, "headers.id + ': ' + payload").channel(onSuccessChannel()).get();
 	}
@@ -154,10 +172,11 @@ public class IntegrationFlowsConfig {
 				if (source.getStatus() == BatchStatus.FAILED) {
 					throw new RuntimeException("Batch operation failed");
 				}
+				
 				return new File(source.getJobParameters().getString(FILE_NAME_KEY));
 
 			};
-		}).handle(Sftp.outboundAdapter(sftpSessionFactory()).remoteDirectory(destinationDirectory)
+		}).handle(Sftp.outboundAdapter(sftpDestinationSessionFactory()).remoteDirectory(destinationDirectory)
 				.fileNameGenerator(new FileNameGenerator() {
 
 					@Override
@@ -165,7 +184,16 @@ public class IntegrationFlowsConfig {
 						return ((File) message.getPayload()).getName() + "-processed-"
 								+ LocalDateTime.now().toString().replace(":", "") + ".csv";
 					}
-				})).get();
+				}), c -> c.advice(expressionAdvice(c)))		
+				.get();
+	}
+	
+	@Bean
+	public ExpressionEvaluatingRequestHandlerAdvice expressionAdvice(GenericEndpointSpec<FileTransferringMessageHandler<ChannelSftp.LsEntry>> c) {
+	    ExpressionEvaluatingRequestHandlerAdvice advice = new ExpressionEvaluatingRequestHandlerAdvice();
+	    //advice.setOnSuccessExpressionString("payload.delete()");
+	    advice.setTrapException(false);
+	    return advice;
 	}
 
 	/**

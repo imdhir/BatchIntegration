@@ -1,6 +1,8 @@
 package com.batch.config;
 
 import java.io.File;
+import java.time.LocalDateTime;
+import java.util.Date;
 
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.JobParametersBuilder;
@@ -36,6 +38,7 @@ public class JobLaunchRequestTransformer {
 	public JobLaunchRequest toRequest(Message<File> message) {
 		JobParametersBuilder jobParametersBuilder = new JobParametersBuilder();
 		jobParametersBuilder.addString(fileParameterName, message.getPayload().getAbsolutePath());
+		jobParametersBuilder.addDate("currentDateTime", new Date());
 		return new JobLaunchRequest(job, jobParametersBuilder.toJobParameters());
 	}
 
